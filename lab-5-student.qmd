@@ -78,6 +78,8 @@ Please don't do either of those things.
 -   The first chunk of this Quarto document should be used to *declare your libraries* (probably only `tidyverse` for now).
 -   The second chunk of your Quarto document should be to *load in your data*.
 
+
+
 ## Save Regularly, Render Often
 
 -   Be sure to **save** your work regularly.
@@ -156,7 +158,8 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: setup
 # code chunk for loading packages
-
+library(tidyverse)
+library(dplyr)
 ```
 
 **2. Load in the `teacher_evals` data.** 
@@ -164,7 +167,7 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: load-data
 # code chunk for importing the data
-
+teacher_evals <- read_csv("data-raw/teacher_evals.csv")
 ```
 
 ### Data Inspection + Summary
@@ -174,16 +177,18 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: explore-data
 # you may want to use code to answer this question
-
+summary(teacher_evals$student)
 ```
+To summarize the data of 'teacher_evals' above we can determine that much of the quantitative data is based around the average student grade and percentiles of scores per course ID. The categorical data is mostly metadata that serves as a basis for the what (course), when (data was taken), and who (gender of student) of the dataset. 
 
 **4. What is the unit of observation (i.e. a single row in the dataset) identified by?**
 
 ```{r}
 #| label: row-identification
 # you may want to use code to answer this question
-
+nrow(teacher_evals) == n_distinct(teacher_evals$course_id, teacher_evals$teacher_id, teacher_evals$question_no)
 ```
+To test for what the unit of observation is identified by, I used 'n_distinct' to check for the unique combinations of the first three columns of the dataset, and the resulting TRUE proves that there are no duplicates among the three columns. This finally answers that per question there is a specific teacher for a specific course. 
 
 **5. Use _one_ `dplyr` pipeline to clean the data by:**
 
@@ -197,7 +202,21 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: data-cleaning
 # code chunk for Q4
+teacher_evals_clean <- teacher_evals %>%
+  rename(sex = gender) %>%
+  filter(no_participants >= 10) %>%
+  mutate(
+    teacher_id = as.character(teacher_id),
+    course_id = as.character(course_id),
+    question_no = as.factor(question_no), 
+    academic_degree = as.factor(academic_degree), 
+    seniority = as.factor(seniority), 
+    sex = as.factor(sex)
+  ) %>%
+  select(course_id, teacher_id, question_no, no_participants, resp_share, SET_score_avg, percent_failed_cur, academic_degree, seniority, sex)
 
+write_csv(teacher_evals_clean, "data-clean/teacher_evals_clean.csv")
+  
 ```
 
 **6. How many unique instructors and unique courses are present in the cleaned dataset?**
@@ -205,32 +224,53 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: unique-courses
 # code chunk for Q5
-
+unique_instructors <- teacher_evals_clean %>%
+  distinct(teacher_id)
+unique_courses <- teacher_evals_clean %>%
+  distinct(course_id)
 ```
+Based on each new unique dataset from above, we find that there are 939 unique courses and 297 unique teachers.
 
 **7. One teacher-course combination has some missing values, coded as `NA`. Which instructor has these missing values? Which course? What variable are the missing values in?**
 
 ```{r}
 #| label: uncovering-missing-values
 # code chunk for Q6
+missing_values <- teacher_evals_clean %>%
+  filter(if_any(everything(), is.na)) %>%
+  select(teacher_id, course_id, everything())
 
+print(missing_values)
 ```
+
 
 **8. What are the demographics of the instructors in this study? Investigate the variables `academic_degree`, `seniority`, and `sex` and summarize your findings in ~3 complete sentences.**
 
 ```{r}
 #| label: exploring-demographics-of-instructors
 # code chunk for Q7
+demographics <- teacher_evals_clean %>%
+  group_by(academic_degree, seniority, sex) %>%
+  select(academic_degree, seniority, sex)
 
+summary(demographics)
 ```
+Based on the summary of our demographics dataset, we can determine that there are more male instructors than females, more than 60% of the instructors have a doctorate degree, and over a third of the seniority has a score equal to or less than 4.
 
 **9. Each course seems to have used a different subset of the nine evaluation questions. How many teacher-course combinations asked all nine questions?**
 
 ```{r}
 #| label: teacher-course-asked-every-question
 # code chunk for Q8
+questions <- teacher_evals_clean %>%
+  group_by(teacher_id, course_id) %>%
+  summarise(unique_questions = n_distinct(question_no))
 
+teach_course_combo <- sum(questions$unique_questions == 9)
+
+print(teach_course_combo)
 ```
+Based on the code above, there are 49 teacher-course combinations that asked all nine questions.
 
 ## Rate my Professor
 
@@ -239,21 +279,64 @@ included in the `teacher_evals_codebook.pdf`.
 ```{r}
 #| label: question-1-high-low
 # code chunk for Q9
+Q1_data <- teacher_evals_clean %>% 
+  filter(question_no == 901)
 
+avg_ratings <- Q1_data %>%
+  group_by(teacher_id) %>%
+  summarise(avg_ratings = mean(SET_score_avg, na.rm = TRUE))
+
+highest_avg_teacher <- avg_ratings %>% 
+  filter(avg_ratings == max(avg_ratings))
+lowest_avg_teacher <- avg_ratings %>% 
+  filter(avg_ratings == min(avg_ratings))
+
+print(highest_avg_teacher)
+print(lowest_avg_teacher)
 ```
+Table 1 of 'Highest Avg Teacher' displays a list of all the teachers that received a 5 rating for the first question, while Table 2 of 'Lowest Avg Teacher' displays a list of all the teachers that received a 1 rating for the first question.
 
 **11. Which instructors with one year of experience had the highest and lowest average percentage of students failing in the current semester across all their courses?**
 
 ```{r}
 #| label: one-year-experience-failing-students
 # code chunk for Q10
+one_year_exp <- teacher_evals_clean %>%
+  filter(seniority == 1)
 
+fail_rate <- one_year_exp %>%
+  group_by(teacher_id) %>%
+  summarise(fail_rate = mean(percent_failed_cur, na.rm = TRUE))
+
+high_fail_rate <- fail_rate %>%
+  filter(fail_rate == max(fail_rate, na.rm = TRUE))
+low_fail_rate <- fail_rate %>%
+  filter(fail_rate == min(fail_rate, na.rm = TRUE))
+
+print(high_fail_rate)
+print(low_fail_rate)
 ```
+The teacher with one year of experience and the highest fail rate was teacher 106692.
+The teacher with one year of experience and the lowest fail rate was teachers 102379, 103092, 106126, 86222, 98650, and 98651.
 
 **12. Which female instructors with either a doctorate or professional degree had the highest and lowest average percent of students responding to the evaluation across all their courses?**
 
 ```{r}
 #| label: female-instructor-student-response
 # code chunk for Q11
+female_instructors <- teacher_evals_clean %>%
+  filter(sex == "female", academic_degree %in% c("dr", "prof"))
 
+avg_resp_rate <- female_instructors %>%
+  group_by(teacher_id) %>%
+  summarise(avg_resp_share = mean(resp_share, na.rm = TRUE))
+
+highest_resp_female <- avg_resp_rate %>%
+  filter(avg_resp_share == max(avg_resp_share, na.rm = TRUE))
+lowest_resp_female <- avg_resp_rate %>%
+  filter(avg_resp_share == min(avg_resp_share, na.rm = TRUE))
+
+print(highest_resp_female)
+print(lowest_resp_female)
 ```
+The female instructor with either a doctorate or professional degree that had the highest  average percent of students responding to the evaluation across all their courses was teacher 101508, and the teacher with the lowest was 59338.
